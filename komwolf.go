@@ -45,7 +45,7 @@ func findToken() (string, error) {
 	var err error
 	tokenFilename := "STRAVA_TOKEN"
 	// First check environment.
-	val := os.Getenv(tokenFilename)
+	val := strings.TrimSpace(os.Getenv(tokenFilename))
 	if len(val) > 0 {
 		return val, nil
 	}
@@ -54,7 +54,7 @@ func findToken() (string, error) {
 	if err == nil {
 		contents, err = ioutil.ReadFile(tokenFilename)
 		if err == nil {
-			return string(contents), nil
+			return strings.TrimSpace(string(contents)), nil
 		}
 	}
 	return "", err
