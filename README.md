@@ -1,4 +1,5 @@
 ## Komwolf
+Use area bisection to explore segments in an area and find the ones with the slowest leaders.
 
 ### Install
 `go install github.com/pelmers/komwolf`
