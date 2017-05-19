@@ -9,27 +9,27 @@ import (
 // KeyFunc returns a key for sorting a slice of segments.
 type KeyFunc func(*strava.SegmentExplorerSegment) float64
 
-// SegmentKeySorter implements sort.Interface by key comparator.
-type SegmentKeySorter struct {
+// segmentKeySorter implements sort.Interface by key comparator.
+type segmentKeySorter struct {
 	segments []*strava.SegmentExplorerSegment
 	key      KeyFunc
 }
 
-func (s SegmentKeySorter) Len() int {
+func (s segmentKeySorter) Len() int {
 	return len(s.segments)
 }
 
-func (s SegmentKeySorter) Less(i, j int) bool {
+func (s segmentKeySorter) Less(i, j int) bool {
 	return s.key(s.segments[i]) < s.key(s.segments[j])
 }
 
-func (s SegmentKeySorter) Swap(i, j int) {
+func (s segmentKeySorter) Swap(i, j int) {
 	s.segments[i], s.segments[j] = s.segments[j], s.segments[i]
 }
 
 // SortByKey sorts given segments in place using provided key function, ascending order.
 func SortByKey(segments []*strava.SegmentExplorerSegment, key KeyFunc) {
-	sort.Sort(SegmentKeySorter{
+	sort.Sort(segmentKeySorter{
 		segments: segments,
 		key:      key,
 	})
@@ -37,7 +37,7 @@ func SortByKey(segments []*strava.SegmentExplorerSegment, key KeyFunc) {
 
 // SortByDistance sorts given segments in place using segment distance as the key.
 func SortByDistance(segments []*strava.SegmentExplorerSegment) {
-	sort.Sort(SegmentKeySorter{
+	sort.Sort(segmentKeySorter{
 		segments: segments,
 		key: func(s *strava.SegmentExplorerSegment) float64 {
 			return s.Distance
