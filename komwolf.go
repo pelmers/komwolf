@@ -1,30 +1,18 @@
-package main
+package komwolf
 
 import (
-	"flag"
-	"fmt"
 	"github.com/strava/go.strava"
-	"gopkg.in/cheggaaa/pb.v1"
-	"io/ioutil"
 	"log"
-	"os"
 	"sort"
-	"strconv"
-	"strings"
 )
 
-var client *strava.Client
-
-// Convert meters to either km or miles.
-var convertMeters func(float64) float64
-
-// "km" or "mi"
-var distanceAbbrev string
+// KeyFunc returns a key for sorting a slice of segments.
+type KeyFunc func(*strava.SegmentExplorerSegment) float64
 
 // SegmentKeySorter implements sort.Interface by key comparator.
 type SegmentKeySorter struct {
 	segments []*strava.SegmentExplorerSegment
-	key      func(*strava.SegmentExplorerSegment) float64
+	key      KeyFunc
 }
 
 func (s SegmentKeySorter) Len() int {
@@ -39,106 +27,22 @@ func (s SegmentKeySorter) Swap(i, j int) {
 	s.segments[i], s.segments[j] = s.segments[j], s.segments[i]
 }
 
-// Find the strava token either from environment or file.
-func findToken() (string, error) {
-	var contents []byte
-	var err error
-	tokenFilename := "STRAVA_TOKEN"
-	// First check environment.
-	val := strings.TrimSpace(os.Getenv(tokenFilename))
-	if len(val) > 0 {
-		return val, nil
-	}
-	// Not found in environment, check for a file.
-	_, err = os.Stat(tokenFilename)
-	if err == nil {
-		contents, err = ioutil.ReadFile(tokenFilename)
-		if err == nil {
-			return strings.TrimSpace(string(contents)), nil
-		}
-	}
-	return "", err
-}
-
-func main() {
-	swne := flag.String("b", "29.856, -95.593, 29.949, -95.139",
-		"Comma-separated south west north east bounds")
-	iters := flag.Int("i", 0, "Number of bisection iterations")
-	metric := flag.Bool("m", false, "Use km for distance")
-	detailFlag := flag.Bool("d", false, "Print leader pace on each found segment (may be slow)")
-	activityType := flag.String("t", "running", "Activity type, either 'running' or 'riding'")
-	accessToken, err := findToken()
-	if err != nil {
-		log.Fatal("Could not find a Strava public access token. Refer to README.")
-	}
-	client = strava.NewClient(accessToken)
-	flag.Parse()
-	if *metric {
-		convertMeters = func(m float64) float64 { return m * 0.001 }
-		distanceAbbrev = "km"
-	} else {
-		convertMeters = func(m float64) float64 { return m * 0.000621371 }
-		distanceAbbrev = "mi"
-	}
-	swneSplit := strings.Split(*swne, ",")
-	s, _ := strconv.ParseFloat(strings.TrimSpace(swneSplit[0]), 64)
-	w, _ := strconv.ParseFloat(strings.TrimSpace(swneSplit[1]), 64)
-	n, _ := strconv.ParseFloat(strings.TrimSpace(swneSplit[2]), 64)
-	e, _ := strconv.ParseFloat(strings.TrimSpace(swneSplit[3]), 64)
-	segments := deduplicate(bisectBounds(s, w, n, e, *activityType, *iters))
-	log.Printf("Found %d unique segments", len(segments))
+// SortByKey sorts given segments in place using provided key function, ascending order.
+func SortByKey(segments []*strava.SegmentExplorerSegment, key KeyFunc) {
 	sort.Sort(SegmentKeySorter{
 		segments: segments,
-		key: func(segment *strava.SegmentExplorerSegment) float64 {
-			return segment.Distance
+		key:      key,
+	})
+}
+
+// SortByDistance sorts given segments in place using segment distance as the key.
+func SortByDistance(segments []*strava.SegmentExplorerSegment) {
+	sort.Sort(SegmentKeySorter{
+		segments: segments,
+		key: func(s *strava.SegmentExplorerSegment) float64 {
+			return s.Distance
 		},
 	})
-	details := make(map[int64]*strava.SegmentLeaderboardEntry)
-	if *detailFlag {
-		// Find all the segment details
-		log.Print("Collecting segment leaderboards")
-		bar := pb.StartNew(len(segments))
-		for _, sm := range segments {
-			if leader := segmentLeader(sm.Id); leader != nil {
-				details[sm.Id] = leader
-			}
-			bar.Increment()
-		}
-		bar.Finish()
-		// Sort by pace
-		sort.Sort(SegmentKeySorter{
-			segments: segments,
-			key: func(segment *strava.SegmentExplorerSegment) float64 {
-				if val, ok := details[segment.Id]; ok {
-					return float64(val.ElapsedTime) / segment.Distance
-				}
-				return segment.Distance
-			},
-		})
-	}
-	for _, sm := range segments {
-		printSegment(sm)
-		if val, ok := details[sm.Id]; ok {
-			printLeader(val, sm.Distance)
-		}
-	}
-}
-
-func printSegment(sm *strava.SegmentExplorerSegment) {
-	prefix := "https://www.strava.com/segments"
-	fmt.Printf("%s/%d %.2f %s: %s\n", prefix, sm.Id,
-		convertMeters(sm.Distance), distanceAbbrev, sm.Name)
-}
-
-func printLeader(ld *strava.SegmentLeaderboardEntry, distance float64) {
-	// find pace in minutes per mile
-	minutes := float64(ld.ElapsedTime) / 60.0
-	pace := minutes / convertMeters(distance)
-	paceMinutes := int64(pace)
-	// add 0.5 to round a positive number (math.Round does not exist)
-	paceSeconds := int64((pace-float64(paceMinutes))*60.0 + 0.5)
-	fmt.Printf("CR %d:%02d %s/min (%d s)\n", paceMinutes, paceSeconds,
-		distanceAbbrev, ld.ElapsedTime)
 }
 
 // deduplicate returns a copy of s with duplicates removed.
@@ -154,7 +58,9 @@ func deduplicate(s []*strava.SegmentExplorerSegment) []*strava.SegmentExplorerSe
 	return d
 }
 
-func segmentLeader(id int64) *strava.SegmentLeaderboardEntry {
+// SegmentLeader returns the leaderboard entry of the global leader of given segment id.
+// If not found, return nil.
+func SegmentLeader(client *strava.Client, id int64) *strava.SegmentLeaderboardEntry {
 	segmentService := strava.NewSegmentsService(client)
 	leaderboard := segmentService.GetLeaderboard(id)
 	// Limit to top 1 of first page.
@@ -166,7 +72,10 @@ func segmentLeader(id int64) *strava.SegmentLeaderboardEntry {
 	return nil
 }
 
-func bisectBounds(south, west, north, east float64,
+// ExploreArea uses Strava explore API to find as many segments as possible in the
+// provided area by recursive bisection up to given number of iterations.
+// Activity type can be either "running" or "riding."
+func ExploreArea(client *strava.Client, south, west, north, east float64,
 	activityType string, iters int) []*strava.SegmentExplorerSegment {
 
 	segments := make([]*strava.SegmentExplorerSegment, 0)
@@ -191,5 +100,5 @@ func bisectBounds(south, west, north, east float64,
 		}
 	}
 	recur(south, west, north, east, iters)
-	return segments
+	return deduplicate(segments)
 }
