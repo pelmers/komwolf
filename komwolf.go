@@ -2,9 +2,7 @@ package komwolf
 
 import (
 	"github.com/strava/go.strava"
-	"gopkg.in/cheggaaa/pb.v1"
 	"log"
-	"math"
 	"sort"
 )
 
@@ -82,12 +80,10 @@ func ExploreArea(client *strava.Client, south, west, north, east float64,
 
 	segments := make([]*strava.SegmentExplorerSegment, 0)
 	segmentService := strava.NewSegmentsService(client)
-	bar := pb.StartNew(int(math.Pow(4, float64(iters+1))-1) / 3)
 	var recur func(s float64, w float64, n float64, e float64, i int)
 	recur = func(s float64, w float64, n float64, e float64, i int) {
 		explore := segmentService.Explore(s, w, n, e).ActivityType(activityType)
 		exploreSegments, err := explore.Do()
-		bar.Increment()
 		if err != nil {
 			log.Printf("Explore failed at depth %d: %s", i, err.Error())
 		}
@@ -103,6 +99,5 @@ func ExploreArea(client *strava.Client, south, west, north, east float64,
 		}
 	}
 	recur(south, west, north, east, iters)
-	bar.Finish()
 	return deduplicate(segments)
 }
